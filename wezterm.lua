@@ -17,31 +17,28 @@ config.keys = {
     { key = ';', mods = 'CMD|SHIFT|ALT|CTRL', action = wezterm.action.SplitVertical { domain = "CurrentPaneDomain" } },
   }
   
-  -- < Nixie Clock code
-  
-  -- Clock updates every second.
-  config.status_update_interval = 1000
-  
+-- < Nixie Clock code
+-- start with 1 second, will be adjusted
+config.status_update_interval = 1000
+
 local function get_time_parts()
-    local time_str = wezterm.strftime('%H%M%S')
+    local time_str = wezterm.strftime('%H%M')
     return {
       time_str:sub(1, 1),
       time_str:sub(2, 2),
       time_str:sub(3, 3),
       time_str:sub(4, 4),
-      time_str:sub(5, 5),
-      time_str:sub(6, 6),
     }
 end
 
 local image_width = 110
 local image_height = 280
 local slot_width = 115
-local total_width = 8 * slot_width
+local total_width = 5 * slot_width  -- 4 digits + 1 separator
 local start_offset = -total_width / 2 + slot_width / 2
 
 local clock_part_offsets = {}
-for i = 1, 8 do
+for i = 1, 5 do
   table.insert(clock_part_offsets, start_offset + (i - 1) * slot_width)
 end
 
@@ -84,12 +81,18 @@ local function init_nixie_layers()
 
   local layers = { background_layer }
 
+  -- Add layers for HH:MM format
   for i, offset in ipairs(clock_part_offsets) do
-    table.insert(layers, make_layer(digit_sources['0'], offset))
+    if i == 3 then
+      -- Add separator at position 3
+      table.insert(layers, make_layer(separator_sources[1], offset))
+    else
+      table.insert(layers, make_layer(digit_sources['0'], offset))
+    end
   end
 
   wezterm.GLOBAL.nixie_layers = layers
-  wezterm.GLOBAL.last_time_parts = { 'x', 'x', 'x', 'x', 'x', 'x' } -- Force update on first run
+  wezterm.GLOBAL.last_time_parts = { 'x', 'x', 'x', 'x' } -- Force update on first run
 end
 
 init_nixie_layers()
@@ -99,8 +102,6 @@ local time_part_to_layer_idx = {
   [2] = 3, -- H2
   [3] = 5, -- M1
   [4] = 6, -- M2
-  [5] = 8, -- s1
-  [6] = 9, -- s2
 }
 
 wezterm.on('update-status', function(window, pane)
@@ -111,9 +112,9 @@ wezterm.on('update-status', function(window, pane)
   local layers = wezterm.GLOBAL.nixie_layers
   local changed = false
 
-  -- Loop over the time parts, from seconds to hours, as seconds are
-  -- most likely to have changed.
-  for i = 6, 1, -1 do
+  local minute_changed = current_time_parts[3] ~= last_time_parts[3] or current_time_parts[4] ~= last_time_parts[4]
+
+  for i = 4, 1, -1 do
     if current_time_parts[i] ~= last_time_parts[i] then
       local layer_idx = time_part_to_layer_idx[i]
       local new_digit_source = digit_sources[current_time_parts[i]]
@@ -124,30 +125,32 @@ wezterm.on('update-status', function(window, pane)
     end
   end
 
-  -- Update the blinking separators, which change every second
-  wezterm.GLOBAL.separator_state = (wezterm.GLOBAL.separator_state + 1) % 2
-  local sep_idx = wezterm.GLOBAL.separator_state + 1 -- will be 1 or 2
-  local new_separator_source = separator_sources[sep_idx]
-
-  -- Separator between HH and MM is at layer index 4
-  if layers[4].source ~= new_separator_source then
-    layers[4].source = new_separator_source
-    changed = true
-  end
-  -- Separator between MM and SS is at layer index 7
-  if layers[7].source ~= new_separator_source then
-    layers[7].source = new_separator_source
-    changed = true
+  if minute_changed then
+    wezterm.GLOBAL.separator_state = (wezterm.GLOBAL.separator_state + 1) % 2
+    local sep_idx = wezterm.GLOBAL.separator_state + 1 -- will be 1 or 2
+    local new_separator_source = separator_sources[sep_idx]
+    
+    if layers[4].source ~= new_separator_source then
+      layers[4].source = new_separator_source
+      changed = true
+    end
   end
 
   if changed then
-    -- Store the new time for the next comparison
     wezterm.GLOBAL.last_time_parts = current_time_parts
-    -- Apply the configuration changes
     local overrides = window:get_config_overrides() or {}
     overrides.background = layers
     window:set_config_overrides(overrides)
   end
+
+  local current_seconds = tonumber(wezterm.strftime('%S'))
+  local seconds_until_next_minute = 60 - current_seconds
+  
+  local next_interval = (seconds_until_next_minute * 1000) + 100
+  
+  local current_overrides = window:get_config_overrides() or {}
+  current_overrides.status_update_interval = next_interval
+  window:set_config_overrides(current_overrides)
 end)
 
 
