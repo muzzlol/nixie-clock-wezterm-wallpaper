@@ -1,0 +1,45 @@
+# Lua
+*.lua~
+*.luac
+luac.out
+docs/
+
+# LuaRocks
+/lua_modules/
+
+# lua bytecode files
+*.out
+*.o
+*.ko
+*.obj
+*.elf
+
+# lua temporary files
+*.tmp
+
+# lua log files
+*.log
+
+# lua package files
+*.tar.gz
+*.zip
+
+# lua environment files
+.luaenv
+.lua-version
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
