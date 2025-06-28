@@ -3,7 +3,7 @@
 *.luac
 luac.out
 docs/
-
+.gitignore
 # LuaRocks
 /lua_modules/
 
