@@ -110,7 +110,9 @@ wezterm.on('update-status', function(window, pane)
   local current_time_parts = get_time_parts()
   local last_time_parts = wezterm.GLOBAL.last_time_parts
   local layers = wezterm.GLOBAL.nixie_layers
-  local changed = false
+  
+  local config_has_changed = false
+  local overrides = window:get_config_overrides() or {}
 
   local minute_changed = current_time_parts[3] ~= last_time_parts[3] or current_time_parts[4] ~= last_time_parts[4]
 
@@ -120,40 +122,44 @@ wezterm.on('update-status', function(window, pane)
       local new_digit_source = digit_sources[current_time_parts[i]]
       if layers[layer_idx].source ~= new_digit_source then
         layers[layer_idx].source = new_digit_source
-        changed = true
+        config_has_changed = true
       end
     end
   end
 
   if minute_changed then
     wezterm.GLOBAL.separator_state = (wezterm.GLOBAL.separator_state + 1) % 2
-    local sep_idx = wezterm.GLOBAL.separator_state + 1 -- will be 1 or 2
+    local sep_idx = wezterm.GLOBAL.separator_state + 1
     local new_separator_source = separator_sources[sep_idx]
     
     if layers[4].source ~= new_separator_source then
       layers[4].source = new_separator_source
-      changed = true
+      config_has_changed = true
     end
   end
 
-  if changed then
-    wezterm.GLOBAL.last_time_parts = current_time_parts
-    local overrides = window:get_config_overrides() or {}
+  if config_has_changed then
     overrides.background = layers
-    window:set_config_overrides(overrides)
+    wezterm.GLOBAL.last_time_parts = current_time_parts
   end
 
   local current_seconds = tonumber(wezterm.strftime('%S'))
-  local seconds_until_next_minute = 60 - current_seconds
+  local seconds_until_next_minute = (60 - current_seconds) % 60
+  if seconds_until_next_minute == 0 then
+    seconds_until_next_minute = 60
+  end
   
   local next_interval = (seconds_until_next_minute * 1000) + 100
   
-  local current_overrides = window:get_config_overrides() or {}
-  current_overrides.status_update_interval = next_interval
-  window:set_config_overrides(current_overrides)
+  if overrides.status_update_interval ~= next_interval then
+    overrides.status_update_interval = next_interval
+    config_has_changed = true
+  end
+  
+  if config_has_changed then
+    window:set_config_overrides(overrides)
+  end
 end)
-
-
--- Nixie clock >
+-- Nixie Clock code >
 
 return config
