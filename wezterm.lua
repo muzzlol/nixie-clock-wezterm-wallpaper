@@ -17,10 +17,7 @@ config.keys = {
     { key = ';', mods = 'CMD|SHIFT|ALT|CTRL', action = wezterm.action.SplitVertical { domain = "CurrentPaneDomain" } },
   }
   
--- < Nixie Clock code
--- start with 1 second, will be adjusted
-config.status_update_interval = 1000
-
+-- << Nixie Clock
 local function get_time_parts()
     local time_str = wezterm.strftime('%H%M')
     return {
@@ -41,8 +38,6 @@ local clock_part_offsets = {}
 for i = 1, 5 do
   table.insert(clock_part_offsets, start_offset + (i - 1) * slot_width)
 end
-
-wezterm.GLOBAL.separator_state = wezterm.GLOBAL.separator_state or 0
 
 local background_layer = {
   source = { Color = 'black' },
@@ -74,92 +69,53 @@ local function make_layer(src, offset)
   }
 end
 
-local function init_nixie_layers()
-  if wezterm.GLOBAL.nixie_layers then
-    return
-  end
-
+-- Build the background layers based on current time
+local function build_nixie_background()
   local layers = { background_layer }
-
+  local time_parts = get_time_parts()
+  
+  -- Calculate separator state based on current minute for blinking effect
+  local current_minute = tonumber(time_parts[3] .. time_parts[4])
+  local separator_state = current_minute % 2
+  local separator_source = separator_sources[separator_state + 1]
+  
   -- Add layers for HH:MM format
   for i, offset in ipairs(clock_part_offsets) do
     if i == 3 then
       -- Add separator at position 3
-      table.insert(layers, make_layer(separator_sources[1], offset))
+      table.insert(layers, make_layer(separator_source, offset))
     else
-      table.insert(layers, make_layer(digit_sources['0'], offset))
+      -- Map positions to time parts: 1->H1, 2->H2, 4->M1, 5->M2
+      local time_part_idx = (i <= 2) and i or (i - 1)
+      local digit = time_parts[time_part_idx]
+      table.insert(layers, make_layer(digit_sources[digit], offset))
     end
   end
-
-  wezterm.GLOBAL.nixie_layers = layers
-  wezterm.GLOBAL.last_time_parts = { 'x', 'x', 'x', 'x' } -- Force update on first run
+  
+  return layers
 end
 
-init_nixie_layers()
+-- Set initial background
+config.background = build_nixie_background()
 
-local time_part_to_layer_idx = {
-  [1] = 2, -- H1
-  [2] = 3, -- H2
-  [3] = 5, -- M1
-  [4] = 6, -- M2
-}
-
-wezterm.on('update-status', function(window, pane)
-  init_nixie_layers()
-
-  local current_time_parts = get_time_parts()
-  local last_time_parts = wezterm.GLOBAL.last_time_parts
-  local layers = wezterm.GLOBAL.nixie_layers
-  
-  local config_has_changed = false
-  local overrides = window:get_config_overrides() or {}
-
-  local minute_changed = current_time_parts[3] ~= last_time_parts[3] or current_time_parts[4] ~= last_time_parts[4]
-
-  for i = 4, 1, -1 do
-    if current_time_parts[i] ~= last_time_parts[i] then
-      local layer_idx = time_part_to_layer_idx[i]
-      local new_digit_source = digit_sources[current_time_parts[i]]
-      if layers[layer_idx].source ~= new_digit_source then
-        layers[layer_idx].source = new_digit_source
-        config_has_changed = true
-      end
-    end
-  end
-
-  if minute_changed then
-    wezterm.GLOBAL.separator_state = (wezterm.GLOBAL.separator_state + 1) % 2
-    local sep_idx = wezterm.GLOBAL.separator_state + 1
-    local new_separator_source = separator_sources[sep_idx]
-    
-    if layers[4].source ~= new_separator_source then
-      layers[4].source = new_separator_source
-      config_has_changed = true
-    end
-  end
-
-  if config_has_changed then
-    overrides.background = layers
-    wezterm.GLOBAL.last_time_parts = current_time_parts
-  end
-
+-- Schedule updates every minute
+local function schedule_next_update()
   local current_seconds = tonumber(wezterm.strftime('%S'))
   local seconds_until_next_minute = (60 - current_seconds) % 60
   if seconds_until_next_minute == 0 then
     seconds_until_next_minute = 60
   end
   
-  local next_interval = (seconds_until_next_minute * 1000) + 100
-  
-  if overrides.status_update_interval ~= next_interval then
-    overrides.status_update_interval = next_interval
-    config_has_changed = true
-  end
-  
-  if config_has_changed then
-    window:set_config_overrides(overrides)
-  end
-end)
--- Nixie Clock code >
+  wezterm.time.call_after(seconds_until_next_minute, function()
+    wezterm.reload_configuration()
+  end)
+end
+
+-- Start the update cycle
+schedule_next_update()
+
+-- Nixie Clock code >>
 
 return config
+
+
