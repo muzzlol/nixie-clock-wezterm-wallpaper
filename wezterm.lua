@@ -148,8 +148,7 @@ end
 -- Set initial background
 config.background = build_nixie_background()
 
--- Update clock every minute using update-status event (no config reload needed)
-config.status_update_interval = 60000  -- 60 seconds in milliseconds
+config.status_update_interval = 60000  -- 60 seconds 
 
 wezterm.on('update-status', function(window, pane)
   local overrides = window:get_config_overrides() or {}
