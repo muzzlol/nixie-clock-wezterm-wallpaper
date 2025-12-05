@@ -1,33 +1,77 @@
 local wezterm = require 'wezterm'
 
 local config = wezterm.config_builder()
+local resurrect = wezterm.plugin.require("https://github.com/MLFlexer/resurrect.wezterm")
 
-config.max_fps = 120
+if not wezterm.GLOBAL.resurrect_timer_started then
+  resurrect.state_manager.periodic_save({
+    interval_seconds = 15 * 60,
+    save_workspaces = true,
+    save_windows = true,
+    save_tabs = true,
+  })
+  wezterm.GLOBAL.resurrect_timer_started = true
+end
+
+config.inactive_pane_hsb = {
+  saturation = 0.8,  -- Keep original colors
+  brightness = 0.5,  -- Dim inactive panes
+}
+
 config.font = wezterm.font("MesloLGS Nerd Font Mono")
 config.font_size = 14.0
 config.window_decorations = "RESIZE"
 
--- Key Bindings for Pane Navigation
 config.keys = {
-    { key = 'RightArrow', mods = 'CMD|SHIFT', action = wezterm.action.ActivatePaneDirection("Right") },
-    { key = 'LeftArrow', mods = 'CMD|SHIFT', action = wezterm.action.ActivatePaneDirection("Left") },
-    { key = 'UpArrow', mods = 'CMD|SHIFT', action = wezterm.action.ActivatePaneDirection("Up") },
-    { key = 'DownArrow', mods = 'CMD|SHIFT', action = wezterm.action.ActivatePaneDirection("Down") },
-    { key = '5', mods = 'CMD|SHIFT|ALT|CTRL', action = wezterm.action.SplitHorizontal { domain = "CurrentPaneDomain" } },
-    { key = ';', mods = 'CMD|SHIFT|ALT|CTRL', action = wezterm.action.SplitVertical { domain = "CurrentPaneDomain" } },
+    -- pane navigtation stuff
+    { key = ';', mods = 'CMD|SHIFT', action = wezterm.action.ActivatePaneDirection("Right") },
+    { key = 'j', mods = 'CMD|SHIFT', action = wezterm.action.ActivatePaneDirection("Left") },
+    { key = 'k', mods = 'CMD|SHIFT', action = wezterm.action.ActivatePaneDirection("Up") },
+    { key = 'l', mods = 'CMD|SHIFT', action = wezterm.action.ActivatePaneDirection("Down") },
+    { key = '1', mods = 'CMD|SHIFT|ALT|CTRL', action = wezterm.action.SplitHorizontal { domain = "CurrentPaneDomain" } },
+    { key = '2', mods = 'CMD|SHIFT|ALT|CTRL', action = wezterm.action.SplitVertical { domain = "CurrentPaneDomain" } },
+
+    -- resurrect stuff
+    {
+      key = 's',
+      mods = 'CMD|SHIFT',
+      action = wezterm.action_callback(function(window)
+        wezterm.log_info "resurrect: saving current workspace state"
+        resurrect.state_manager.save_state(resurrect.workspace_state.get_workspace_state())
+      end),
+    },
+    {
+      key = 't',
+      mods = 'CMD|SHIFT',
+      action = wezterm.action_callback(function(window, pane)
+        resurrect.fuzzy_loader.fuzzy_load(window, pane, function(id, label)
+          local type = string.match(id, "^([^/]+)") -- match before '/'
+          id = string.match(id, "([^/]+)$")         -- match after '/'
+          id = string.match(id, "(.+)%..+$")        -- remove file extension
+          if type == "workspace" then
+            local state = resurrect.state_manager.load_state("default", "workspace")
+            if state and state.window_states and #state.window_states > 0 then
+              local last_window = state.window_states[1]
+              local restore_opts = {
+                window = pane:window(),
+                close_open_tabs = true,
+                relative = true,
+                restore_text = true,
+                on_pane_restore = resurrect.tab_state.default_on_pane_restore,
+              }
+              resurrect.window_state.restore_window(pane:window(), last_window, restore_opts)
+            else
+              wezterm.log_error("resurrect: Last session file found, but it contained no windows.")
+            end
+          end
+        end)
+      end),
+    }
   }
   
 -- << Nixie Clock
-local function get_time_parts()
-    local time_str = wezterm.strftime('%H%M')
-    return {
-      time_str:sub(1, 1),
-      time_str:sub(2, 2),
-      time_str:sub(3, 3),
-      time_str:sub(4, 4),
-    }
-end
 
+-- Image dimensions and layout
 local image_width = 110
 local image_height = 280
 local slot_width = 115
@@ -72,7 +116,13 @@ end
 -- Build the background layers based on current time
 local function build_nixie_background()
   local layers = { background_layer }
-  local time_parts = get_time_parts()
+  local time_str = wezterm.strftime('%H%M')
+  local time_parts = {
+    time_str:sub(1, 1),
+    time_str:sub(2, 2),
+    time_str:sub(3, 3),
+    time_str:sub(4, 4),
+  }
   
   -- Calculate separator state based on current minute for blinking effect
   local current_minute = tonumber(time_parts[3] .. time_parts[4])
@@ -98,24 +148,15 @@ end
 -- Set initial background
 config.background = build_nixie_background()
 
--- Schedule updates every minute
-local function schedule_next_update()
-  local current_seconds = tonumber(wezterm.strftime('%S'))
-  local seconds_until_next_minute = (60 - current_seconds) % 60
-  if seconds_until_next_minute == 0 then
-    seconds_until_next_minute = 60
-  end
-  
-  wezterm.time.call_after(seconds_until_next_minute, function()
-    wezterm.reload_configuration()
-  end)
-end
+-- Update clock every minute using update-status event (no config reload needed)
+config.status_update_interval = 60000  -- 60 seconds in milliseconds
 
--- Start the update cycle
-schedule_next_update()
+wezterm.on('update-status', function(window, pane)
+  local overrides = window:get_config_overrides() or {}
+  overrides.background = build_nixie_background()
+  window:set_config_overrides(overrides)
+end)
 
 -- Nixie Clock code >>
 
 return config
-
-
